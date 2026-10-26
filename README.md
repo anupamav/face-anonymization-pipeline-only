@@ -1,71 +1,148 @@
 # Face Anonymization Pipeline
 
-Python command-line pipeline for face masking with optional child segmentation and a YOLO11 pose fallback.
+A Python-based face anonymization pipeline that combines face detection, child segmentation, and pose estimation to mask facial regions in images.
 
-## Setup
+The pipeline handles missing face coordinates, missing segmentation masks, multiple-person scenarios, and uncertain pose predictions.
+
+## Visual Example
+
+The following example uses an AI-generated synthetic image and shows the original RGB image, child segmentation mask, and masked RGB output.
+
+![Original RGB, Child Segmentation, and Masked RGB](docs/images/sample_comparisons.png)
+
+**Image:** IMG_004
+
+**Masking Logic:** `FACE_COORDINATES_FACE_BOX_INTERSECTED_WITH_CHILD_MASK`
+
+**Status:** `MASKED_REVIEW_REQUIRED`
+
+The mask was generated using available face coordinates and the child segmentation mask. This example demonstrates segmentation-aware masking and remains flagged for manual review.
+
+## Features
+
+- Face masking using detected face coordinates.
+- Segmentation-aware masking using a 75% intersection threshold.
+- Pose-based face localization when face coordinates are unavailable.
+- Multiple-person handling using pose confidence and completeness checks.
+- Automatic handling of missing segmentation masks.
+- Manual-review flags for uncertain predictions.
+- Visualization of original RGB, child segmentation, and masked RGB.
+- CSV output containing masking results and processing status.
+
+## Sample Dataset
+
+**Sample Dataset:** The images included in this repository are AI-generated synthetic images created for demonstrating and testing the face anonymization pipeline. They do not represent real research participants or actual child anthropometric data.
+
+The repository includes `samples.zip`, containing synthetic RGB images, available segmentation masks, and an `images.csv` file.
+
+Some face coordinates and segmentation masks are intentionally missing to demonstrate fallback handling.
+
+## Installation
 
 Requires Python 3.10 or newer.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+```
+
+Activate the environment:
+
+Linux/macOS:
+
+```bash
+source .venv/bin/activate
+```
+
+Windows:
+
+```bash
+.venv\Scripts\activate
+```
+
+Install the package:
+
+```bash
 pip install -e .
 ```
 
-## Dataset
+## Running the Pipeline
 
-**Sample Dataset:** The images included in this repository are AI-generated synthetic images created for demonstrating and testing the face anonymization pipeline. They do not represent real research participants or actual child anthropometric data.
-
-The repository includes `samples.zip`. Extract it at the repository root before running the pipeline. For example:
-
-```text
-samples/
-  images.csv
-  images/
-    IMG_001.png
-    IMG_001_child_mask.png
-```
-
-The CSV must contain `image_path`. Optional columns include `mask_path`, `face_bbox_xyxy`, and `id`. Paths are relative to the dataset directory. Missing masks and missing face coordinates are supported.
-
-## Run
-
-Extract the bundled sample dataset first:
+Extract the sample dataset:
 
 ```bash
 python -m zipfile -e samples.zip .
 ```
 
+Run the masking pipeline:
 
 ```bash
 python -m face_masking --data ./samples
 ```
 
-To show each RGB image, child mask, and masked output:
+Display the original RGB, segmentation mask, and masked RGB:
 
 ```bash
 python -m face_masking --data ./samples --display
 ```
 
-To choose different YOLO pose weights:
+## Face Masking Logic
 
-```bash
-python -m face_masking --data ./samples --weights yolo11s-pose.pt
+### 1. Face Coordinates Available
+
+- Generate a face rectangle using the available face coordinates.
+- If child segmentation is available, calculate the intersection between the face rectangle and child segmentation mask.
+- If the intersection covers at least 75% of the face rectangle, use the intersected region.
+- Otherwise, use the original face rectangle.
+- If segmentation is missing, use the original face rectangle.
+
+### 2. Face Coordinates Missing
+
+Use pose estimation to identify the facial region.
+
+- If child segmentation is available, run pose estimation on the segmented child RGB.
+- If segmentation is unavailable, run pose estimation on the original RGB.
+- If pose estimation fails or the keypoints are unreliable, flag the image for manual review.
+
+### 3. Multiple-Person Handling
+
+When multiple people are detected:
+
+- Require person detection confidence ≥ 0.75.
+- Require at least 75% pose completeness, calculated using keypoints with confidence ≥ 0.50.
+- Select the smallest bounding box among qualifying candidates.
+- If no candidate satisfies these conditions, flag the image for manual review.
+
+### 4. Pose-Based Face Mask Generation
+
+- Identify eye and nose keypoints.
+- Construct a face region using the eye line and nose.
+- Extend the upper boundary 20% above the eye line.
+- Extend the lower boundary 30% below the nose.
+- Intersect the generated face region with the child segmentation mask when available.
+- If child segmentation is missing, use the generated face region directly.
+
+The pipeline uses:
+
+```python
+POSE_FACE_SCALE = 1.0
 ```
 
-Ultralytics downloads weights on first use unless already cached. Internet access may be needed.
+This preserves the original pose-generated face region without additional enlargement.
 
-## Logic
+### 5. Manual Review
 
-- **Face coordinates present:** Generate the face rectangle. If a child mask is present, use the intersection when overlap is at least 75%; otherwise use the full rectangle.
-- **Face coordinates missing:** Run YOLO Pose on the segmented child RGB, or original RGB when the child mask is missing.
-- **Multiple people:** Require person detection confidence >= 0.75 and at least 75% of the 17 pose keypoints to have confidence >= 0.50. Select the smallest qualifying bounding box. If none qualify, flag for manual review.
-- **Pose-derived face region:** Use the eye line and nose to construct a polygon, extending 20% above the eye line and 30% below the nose, clipped to child segmentation when available. `POSE_FACE_SCALE = 1.0` preserves the original region without extra enlargement.
-- **Uncertain cases:** Flag for manual review rather than marking as successfully anonymized.
+Images are flagged for manual review when reliable face localization is not possible or when generated masks require additional verification.
 
 ## Output
 
-Results are saved to `samples/masked_outputs/`, with `samples/images_with_masking_results.csv` recording paths, masking logic, and review status. Pose-derived masks require visual review. No masking method guarantees complete anonymization.
+The pipeline generates:
+
+- Masked RGB images.
+- Binary face masks.
+- An updated CSV containing masking status, masking logic, and output paths.
+- Visualizations showing original RGB, child segmentation, and masked RGB.
+
+Outputs are saved under `samples/masked_outputs/`, and the results CSV is saved as `samples/images_with_masking_results.csv`.
 
 ## Testing
 
@@ -74,14 +151,30 @@ pip install -e '.[test]'
 pytest -q
 ```
 
-## Demo purpose and limitations
+## Demo Purpose and Limitations
 
-**This face anonymization pipeline is developed for demonstration and experimental purposes only.** The face-masking logic is not fully optimized or validated for all conditions. It illustrates a rule-based workflow that combines face coordinates, child segmentation masks, and pose estimation, including fallback handling for missing data.
+**This face anonymization pipeline is developed for demonstration and experimental purposes only.**
 
-Results may be unreliable when multiple people appear, faces are occluded or rotated, pose keypoints are inaccurate, or segmentation masks are incomplete. The 75% overlap threshold, pose-confidence requirements, and face-region geometry are experimental choices and may need adjustment for other datasets.
+The face-masking logic is not fully optimized or validated for all possible conditions. It demonstrates a rule-based approach combining face coordinates, child segmentation masks, and pose estimation to handle different scenarios, including missing data.
 
-**A generated mask does not guarantee complete face anonymization.** Every output should be visually reviewed, and further validation is necessary before use with real or sensitive images. This repository demonstrates processing logic and decision-making rather than a production-ready privacy solution.
+The current implementation may not perform reliably in all situations, particularly when:
 
-## Privacy and publishing
+- Multiple people are present.
+- Faces are partially occluded or rotated.
+- Pose estimation produces inaccurate keypoints.
+- Segmentation masks are incomplete or incorrect.
+- Face coordinates are inaccurate or unavailable.
 
-Do not commit private or identifiable images, proprietary datasets, model weights, or credentials. Review generated masks before distributing imagery. Verify applicable image licenses and the Ultralytics software/model license for your intended use.
+The masking thresholds and face-region generation rules are experimental and may require further optimization for different datasets and real-world conditions.
+
+**Generated masks do not guarantee complete face anonymization.** Manual verification and additional validation are required before using this approach with real or sensitive images.
+
+This repository is intended to demonstrate the pipeline's workflow, fallback mechanisms, and decision-making logic rather than provide a production-ready anonymization solution.
+
+## Privacy and Publishing
+
+The sample dataset contains synthetic images intended for demonstration.
+
+Do not upload confidential datasets, identifiable images of real children, private credentials, or proprietary code without authorization.
+
+Review the applicable Ultralytics software and model licensing terms before commercial deployment or redistribution.
